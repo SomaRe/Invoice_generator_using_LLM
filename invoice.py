@@ -10,10 +10,56 @@ import setup_database
 from openai import OpenAI
 import config
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# System messages
+FUNCTION_DESCRIPTION_MESSAGE = '''
+You are an AI assistant for an invoice management system. Your responses will be in JSON format.
+You have access to the following functions:
+
+- add_student(name: str, per_hour_rate: float, subject: str) -> dict:
+  Adds a new student to the database.
+  Returns a JSON object with the following structure, do not include comments in the response:
+  {
+      "function": "add_student",
+      "args": {
+          "name": "<student_name>",  # The name of the student
+          "per_hour_rate": <rate>,  # The hourly rate for the student
+          "subject": "<subject>"  # The subject of the student
+      }
+  }
+
+- add_invoice_entry(student_name: str, num_hours: float, session_date: Optional[str], comments: Optional[str]) -> dict:
+  Adds a new invoice entry for a student.
+  Returns a JSON object with the following structure, do not include comments in the response:
+  {
+      "function": "add_invoice_entry",
+      "args": {
+          "student_name": "<student_name>",  # The name of the student
+          "num_hours": <hours>,  # The number of hours for the invoice entry
+          "session_date": "<date>",  # The date of the session, set it to NULL if not specified (optional)
+          "comments": "<comments>"  # Comments for the invoice entry, keep it empty if nothing specific is told. (optional)
+      }
+  }
+'''
+
+SQL_QUERY_MESSAGE = '''
+You are an AI assistant with knowledge of the following database schema:
+
+Tables:
+- students: id, name, per_hour_rate, subject, created_at
+- invoice_entries: id, student_id, num_hours, subject, session_date, comments, created_at
+
+Please provide an SQL query based on the request: "{request}"
+
+Always return in JSON format.
+example:
+{{"request": "Give me the names of all students.",
+ "sql_query": "SELECT name FROM students;"}}
+'''
+
+RESULT_PRESENTATION_MESSAGE = "You are an AI assistant that takes a request and results (that are rated from database), and presents them to users in a concise manner."
 
 def add_student(student_name: str, per_hour_rate: float, subject: str) -> None:
     """
@@ -116,40 +162,8 @@ def get_function_from_llm(prompt: str) -> Dict:
     Returns:
         Dict: A dictionary containing the function name and arguments.
     """
-    system_message = '''
-    You are an AI assistant for an invoice management system. Your responses will be in JSON format.
-    You have access to the following functions:
-
-    - add_student(name: str, per_hour_rate: float, subject: str) -> dict:
-      Adds a new student to the database.
-      Returns a JSON object with the following structure, keep everything lower case, do not write comments:
-      example:
-      {
-          "function": "add_student",
-          "args": {
-              "name": "john",  # The name of the student
-              "per_hour_rate": 50,  # The hourly rate for the student
-              "subject": "math"  # The subject of the student
-          }
-      }
-
-    - add_invoice_entry(student_name: str, num_hours: float, session_date: Optional[str], comments: Optional[str]) -> dict:
-      Adds a new invoice entry for a student.
-      Returns a JSON object with the following structure, keep everything lower case, do not write comments:
-      example:
-      {
-          "function": "add_invoice_entry",
-          "args": {
-              "student_name": "john",  # The name of the student
-              "num_hours": 2,  # The number of hours for the invoice entry
-              "session_date": "2024-01-01",  # The date of the session, set it to NULL if not specified (optional)
-               "comments": "test session"  # Comments for the invoice entry, keep it empty if nothing specific is told. (optional)
-          }
-      }
-    '''
-
     messages = [
-        {'role': 'system', 'content': system_message},
+        {'role': 'system', 'content': FUNCTION_DESCRIPTION_MESSAGE},
         {'role': 'user', 'content': prompt}
     ]
 
@@ -181,23 +195,8 @@ def handle_custom_request(request: str) -> None:
     Args:
         request (str): The custom request to handle.
     """
-    system_message = '''
-    You are an AI assistant with knowledge of the following database schema:
-
-    Tables:
-    - students: id, name, per_hour_rate, subject, created_at
-    - invoice_entries: id, student_id, num_hours, subject, session_date, comments, created_at
-
-    Please provide an SQL query based on the request: "{request}"
-
-    Always return in JSON format.
-    example:
-    {{"request": "Give me the names of all students.",
-     "sql_query": "SELECT name FROM students;"}}
-    '''.format(request=request)
-
     messages = [
-        {'role': 'system', 'content': system_message},
+        {'role': 'system', 'content': SQL_QUERY_MESSAGE.format(request=request)},
         {'role': 'user', 'content': request}
     ]
 
@@ -206,7 +205,7 @@ def handle_custom_request(request: str) -> None:
         results = execute_custom_sql(query_info["sql_query"])
         result_message = f"Request: {request}\nResults: {results}"
         messages = [
-            {'role': 'system', 'content': "You are an AI assistant that takes a request and results (that are rated from database), and presents them to users in a concise manner."},
+            {'role': 'system', 'content': RESULT_PRESENTATION_MESSAGE},
             {'role': 'user', 'content': result_message},
         ]
         get_response_from_llm(messages, response_format=None)

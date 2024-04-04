@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sqlite3
 import argparse
 import json
@@ -134,13 +135,19 @@ def get_response_from_llm(messages: List[Dict[str, str]], response_format: Optio
     Returns:
         Dict: The response from the LLM, either as a JSON object or as a string.
     """
+
+    BASE_URL = os.getenv('BASE_URL', config.BASE_URL)
+    API_KEY = os.getenv('API_KEY', config.API_KEY)
+    MODEL = os.getenv('MODEL', config.MODEL)
+
+    print(BASE_URL, API_KEY, MODEL)
     client = OpenAI(
-        base_url=config.BASE_URL,
-        api_key=config.API_KEY
+        base_url=BASE_URL,
+        api_key=API_KEY
     )
 
     response = client.chat.completions.create(
-        model=config.MODEL,
+        model=MODEL,
         messages=messages,
         response_format=response_format,
         temperature=0.0,
@@ -167,7 +174,7 @@ def get_function_from_llm(prompt: str) -> Dict:
         {'role': 'user', 'content': prompt}
     ]
 
-    return get_response_from_llm(messages, response_format={"type": "openhermes"})
+    return get_response_from_llm(messages, response_format={"type": "json_object"})
 
 
 def execute_prompt(prompt: str) -> None:

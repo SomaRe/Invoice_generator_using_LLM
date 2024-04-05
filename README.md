@@ -115,7 +115,7 @@ First, ensure your script is executable by adding the shebang line at the top of
 Then, change the permission to make it executable:
 
 ```bash
-chmod +x /path/to/your/script/invoice_management.py
+chmod +x /path/to/your/script/invoice.py
 ```
 
 Replace `/path/to/your/script/` with the actual directory path where your script resides.

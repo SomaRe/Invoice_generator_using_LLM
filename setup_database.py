@@ -41,6 +41,22 @@ def create_database_tables():
             ''')
             logging.info("Invoice entries table created.")
 
+        # Check if generated_invoices table exists and create if not
+        # if not check_table_exists(cursor, "generated_invoices"):
+        #     cursor.execute('''
+        #         CREATE TABLE generated_invoices (
+        #             id INTEGER PRIMARY KEY,
+        #             student_id INTEGER,
+        #             invoice_date DATE DEFAULT CURRENT_DATE,
+        #             total_amount REAL NOT NULL,
+        #             first_session_date DATE,
+        #             last_session_date DATE,
+        #             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #             FOREIGN KEY (student_id) REFERENCES students(id)
+        #         )
+        #     ''')
+        #     logging.info("Generated invoices table created.")
+
         connection.commit()
     except Exception as e:
         logging.error(f"Error setting up database: {e}")

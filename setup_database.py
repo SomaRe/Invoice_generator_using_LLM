@@ -11,6 +11,7 @@ def check_table_exists(cursor, table_name):
 def create_database_tables():
     connection = sqlite3.connect('student_invoices.db')
     cursor = connection.cursor()
+
     try:
         # Check if students table exists and create if not
         if not check_table_exists(cursor, "students"):
@@ -19,7 +20,7 @@ def create_database_tables():
                     id INTEGER PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL,
                     per_hour_rate REAL NOT NULL,
-                    subject TEXT,
+                    subject TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -30,7 +31,7 @@ def create_database_tables():
             cursor.execute('''
                 CREATE TABLE invoice_entries (
                     id INTEGER PRIMARY KEY,
-                    student_id INTEGER,
+                    student_id INTEGER NOT NULL,
                     num_hours REAL NOT NULL,
                     subject TEXT NOT NULL,
                     session_date DATE DEFAULT CURRENT_DATE,
@@ -42,20 +43,21 @@ def create_database_tables():
             logging.info("Invoice entries table created.")
 
         # Check if generated_invoices table exists and create if not
-        # if not check_table_exists(cursor, "generated_invoices"):
-        #     cursor.execute('''
-        #         CREATE TABLE generated_invoices (
-        #             id INTEGER PRIMARY KEY,
-        #             student_id INTEGER,
-        #             invoice_date DATE DEFAULT CURRENT_DATE,
-        #             total_amount REAL NOT NULL,
-        #             first_session_date DATE,
-        #             last_session_date DATE,
-        #             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        #             FOREIGN KEY (student_id) REFERENCES students(id)
-        #         )
-        #     ''')
-        #     logging.info("Generated invoices table created.")
+        if not check_table_exists(cursor, "generated_invoices"):
+            cursor.execute('''
+                CREATE TABLE generated_invoices (
+                    id INTEGER PRIMARY KEY,
+                    student_id INTEGER NOT NULL,
+                    subject TEXT NOT NULL,
+                    num_hours REAL NOT NULL,
+                    total_amount REAL NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (student_id) REFERENCES students(id)
+                )
+            ''')
+            logging.info("Generated invoices table created.")
 
         connection.commit()
     except Exception as e:

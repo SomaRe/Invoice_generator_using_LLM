@@ -7,9 +7,12 @@ import json
 import datetime
 from typing import Optional, Dict, Tuple, List
 import logging
+from dotenv import load_dotenv
 import setup_database
 from openai import OpenAI
 import config
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -43,14 +46,47 @@ You have access to the following functions:
           "comments": "<comments>"  # Comments for the invoice entry, keep it empty if nothing specific is told. (optional)
       }
   }
+
+- generate_invoice(student_name: str) -> dict:
+    Generates an invoice for a student based on the invoice entries.
+    Returns a JSON object with the following structure, do not include comments in the response:
+    {
+        "function": "generate_invoice",
+        "args": {
+            "student_name": "<student_name>"  # The name of the student
+        }
+    }
 '''
 
 SQL_QUERY_MESSAGE = '''
 You are an AI assistant with knowledge of the following database schema:
 
 Tables:
-- students: id, name, per_hour_rate, subject, created_at
-- invoice_entries: id, student_id, num_hours, subject, session_date, comments, created_at
+- students:
+    - id: INTEGER (PRIMARY KEY)
+    - name: TEXT (UNIQUE NOT NULL) # lowercase only
+    - per_hour_rate: REAL (NOT NULL)
+    - subject: TEXT (NOT NULL) # lowercase only
+    - created_at: TIMESTAMP (DEFAULT CURRENT_TIMESTAMP)
+
+- invoice_entries:
+    - id: INTEGER (PRIMARY KEY)
+    - student_id: INTEGER (FOREIGN KEY students(id))
+    - num_hours: REAL (NOT NULL)
+    - subject: TEXT (NOT NULL) # from students table
+    - session_date: DATE (DEFAULT CURRENT_DATE)
+    - comments: TEXT
+    - created_at: TIMESTAMP (DEFAULT CURRENT_TIMESTAMP)
+
+- generated_invoices:
+    - id: INTEGER (PRIMARY KEY)
+    - student_id: INTEGER (FOREIGN KEY students(id))
+    - subject: TEXT (NOT NULL) # from students table
+    - num_hours: REAL (NOT NULL)
+    - total_amount: REAL (NOT NULL)
+    - start_date: DATE (NOT NULL)
+    - end_date: DATE (NOT NULL)
+    - created_at: TIMESTAMP (DEFAULT CURRENT_TIMESTAMP)
 
 Please provide an SQL query based on the request: "{request}"
 
@@ -74,7 +110,7 @@ def add_student(student_name: str, per_hour_rate: float, subject: str) -> None:
     with sqlite3.connect('student_invoices.db') as connection:
         cursor = connection.cursor()
         try:
-            cursor.execute('INSERT INTO students (name, per_hour_rate, subject) VALUES (?, ?, ?)', (student_name, per_hour_rate, subject))
+            cursor.execute('INSERT INTO students (name, per_hour_rate, subject) VALUES (?, ?, ?)', (student_name.lower(), per_hour_rate, subject.lower()))
             connection.commit()
             logging.info(f"Student added: {student_name}, Rate: {per_hour_rate}, Subject: {subject}")
         except Exception as e:
@@ -122,6 +158,65 @@ def add_invoice_entry(student_name: str, num_hours: float, session_date: Optiona
             logging.info(f"Invoice entry added: {student_name}, Hours: {num_hours}, Date: {session_date}, Comments: {comments or 'None'}")
         except Exception as e:
             logging.error(f"Error adding invoice entry: {e}")
+
+
+def generate_invoice(student_name: str) -> None:
+    """
+    Generate an invoice for a student based on the invoice entries.
+
+    Args:
+        student_name (str): The name of the student.
+    """
+    with sqlite3.connect('student_invoices.db') as connection:
+        cursor = connection.cursor()
+        try:
+            # Fetch all students that match the given name pattern
+            cursor.execute('SELECT id, name, per_hour_rate, subject FROM students WHERE name LIKE ?', (f'%{student_name}%',))
+            matching_students = cursor.fetchall()
+
+            if len(matching_students) > 1:
+                print(f"More than one match found for '{student_name}':")
+                for index, (student_id, student_name, per_hour_rate) in enumerate(matching_students, start=1):
+                    print(f"{index}) {student_name}")
+                choice = int(input("Choose (enter the number): ")) - 1  # Adjust for zero-based index
+                if choice < 0 or choice >= len(matching_students):
+                    logging.error("Invalid choice. Exiting.")
+                    return
+                student_id, _, per_hour_rate, subject = matching_students[choice]
+            elif len(matching_students) == 0:
+                logging.error(f"No students found with the name '{student_name}'.")
+                return
+            else:
+                student_id, _, per_hour_rate, subject = matching_students[0]
+
+            # Fetch all invoice entries for the student from generated_invoices last_date if available
+            # first lets see if there is any invoice generated for this student
+            cursor.execute('SELECT id, student_id, total_amount, start_date, end_date FROM generated_invoices WHERE student_id = ? ORDER BY end_date DESC LIMIT 1', (student_id,))
+            last_invoice = cursor.fetchone()
+            if last_invoice:
+                last_invoice_id, _, _, last_end_date, _ = last_invoice
+                cursor.execute('SELECT num_hours, session_date FROM invoice_entries WHERE student_id = ? AND session_date > ? ORDER BY session_date', (student_id, last_end_date))
+            else:
+                cursor.execute('SELECT num_hours, session_date FROM invoice_entries WHERE student_id = ? ORDER BY session_date', (student_id,))
+            invoice_entries = cursor.fetchall()
+
+            if not invoice_entries:
+                logging.error(f"No invoice entries found for '{student_name}'.")
+                return
+            
+            # Calculate the total amount for the invoice
+            num_hours = sum(num_hours for num_hours, _ in invoice_entries)
+            total_amount = num_hours * per_hour_rate
+
+            # Insert the generated invoice into the database
+            start_date = invoice_entries[0][1]
+            end_date = invoice_entries[-1][1]
+            cursor.execute('INSERT INTO generated_invoices (student_id, subject, num_hours, total_amount, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)', (student_id, subject, num_hours, total_amount, start_date, end_date))
+            connection.commit()
+            logging.info(f"Invoice generated for {student_name}: Hours: {num_hours}, Total Amount: {total_amount}, Start Date: {start_date}, End Date: {end_date}")
+
+        except Exception as e:
+            logging.error(f"Error generating invoice: {e}")
 
 
 def get_response_from_llm(messages: List[Dict[str, str]], response_format: Optional[Dict[str, str]] = {"type": "json_object"}) -> Dict:
@@ -193,6 +288,8 @@ def execute_prompt(prompt: str) -> None:
         add_student(args["name"], args["per_hour_rate"], args["subject"])
     elif function_name == "add_invoice_entry":
         add_invoice_entry(args["student_name"], args["num_hours"], args.get("session_date"), args.get("comments"))
+    elif function_name == "generate_invoice":
+        generate_invoice(args["student_name"])
 
 
 def handle_custom_request(request: str) -> None:
@@ -250,7 +347,7 @@ if __name__ == "__main__":
     group.add_argument("-r", "--request", type=str, help="Custom request to process")
 
     args = parser.parse_args()
-
+    
     setup_database.create_database_tables()
 
     if args.request:

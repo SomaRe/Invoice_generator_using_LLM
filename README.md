@@ -8,11 +8,9 @@ I could totally do all this without using Large Language Models (LLMs), but hone
 * ✅ Add a new student with a specified rate and subject.
 * ✅ Add a new payment for an existing student.
 * ✅ Custom sql queries to fetch data from the database.
-* ✖️ Generate an invoice for a specific student.
-* ✖️ Create a new table to track billing history.
-* ✖️ Ask confirmation before running any query that isn't read-only.
-* ✖️ Function to update the rate or subject for an existing student.
-* ✖️ Function to delete a student from the database.
+* ✅ Generate an invoice for a specific student.
+* ✅ Create a new table to track billing history (generated_invoices).
+* ✖️ Ask confirmation before running any query that isn't read-only (deleting or modifying data).
 * ✖️ STT support (I will probably wait for good open assistant and maybe combine with it).
 
 ## Prerequisites
